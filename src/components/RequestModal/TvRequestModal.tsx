@@ -23,6 +23,9 @@ import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import useSWR, { mutate } from 'swr';
 
+const MAX_SEASONS_PER_REQUEST = 3;
+const MAX_SEASONS_ALERT_TEXT = `Maximum seasons per request (${MAX_SEASONS_PER_REQUEST}) reached`;
+
 const messages = defineMessages('components.RequestModal', {
   requestadmin: 'This request will be approved automatically.',
   requestSuccess: '<strong>{title}</strong> requested successfully!',
@@ -293,6 +296,9 @@ const TvRequestModal = ({
       return;
     }
 
+    // At max season limit and not selected
+    if (maxSeasons && !isSelectedSeason(seasonNumber)) return;
+
     if (selectedSeasons.includes(seasonNumber)) {
       setSelectedSeasons((seasons) =>
         seasons.filter((sn) => sn !== seasonNumber)
@@ -314,6 +320,12 @@ const TvRequestModal = ({
     ) {
       return;
     }
+
+    if (
+      !seasonLimitBypass &&
+      unrequestedSeasons.length > MAX_SEASONS_PER_REQUEST
+    )
+      return;
 
     if (
       data &&
@@ -375,6 +387,16 @@ const TvRequestModal = ({
 
   const isOwner = editRequest && editRequest.requestedBy.id === user?.id;
 
+  const seasonLimitBypass = hasPermission(Permission.ADMIN);
+
+  const maxSeasons =
+    !seasonLimitBypass &&
+    selectedSeasons.length >= MAX_SEASONS_PER_REQUEST &&
+    unrequestedSeasons.length > MAX_SEASONS_PER_REQUEST;
+
+  const tooManySeasons =
+    !seasonLimitBypass && selectedSeasons.length > MAX_SEASONS_PER_REQUEST;
+
   return data && !error && !data.externalIds.tvdbId && searchModal.show ? (
     <SearchByNameModal
       tvdbId={tvdbId}
@@ -433,7 +455,8 @@ const TvRequestModal = ({
                   )
       }
       okDisabled={
-        editRequest
+        tooManySeasons ||
+        (editRequest
           ? false
           : !settings.currentSettings.partialRequestsEnabled &&
               quota?.tv.limit &&
@@ -441,7 +464,7 @@ const TvRequestModal = ({
             ? true
             : getAllRequestedSeasons().length >= getAllSeasons().length ||
               (settings.currentSettings.partialRequestsEnabled &&
-                selectedSeasons.length === 0)
+                selectedSeasons.length === 0))
       }
       okButtonType={
         editRequest
@@ -491,6 +514,11 @@ const TvRequestModal = ({
             />
           </p>
         )}
+      {maxSeasons && (
+        <p className="mt-6">
+          <Alert title={MAX_SEASONS_ALERT_TEXT} type="warning" />
+        </p>
+      )}
       {(quota?.tv.limit ?? 0) > 0 && (
         <QuotaDisplay
           mediaType="tv"
@@ -538,9 +566,12 @@ const TvRequestModal = ({
                           }
                         }}
                         className={`relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer items-center justify-center pt-2 focus:outline-none ${
-                          quota?.tv.remaining &&
-                          quota.tv.limit &&
-                          quota.tv.remaining < unrequestedSeasons.length
+                          (!seasonLimitBypass &&
+                            unrequestedSeasons.length >
+                              MAX_SEASONS_PER_REQUEST) ||
+                          (quota?.tv.remaining &&
+                            quota.tv.limit &&
+                            quota.tv.remaining < unrequestedSeasons.length)
                             ? 'opacity-50'
                             : ''
                         }`}
@@ -617,6 +648,8 @@ const TvRequestModal = ({
                               }}
                               className={`relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer items-center justify-center pt-2 focus:outline-none ${
                                 mediaSeason ||
+                                (maxSeasons &&
+                                  !isSelectedSeason(season.seasonNumber)) ||
                                 (quota?.tv.limit &&
                                   currentlyRemaining <= 0 &&
                                   !isSelectedSeason(season.seasonNumber)) ||
